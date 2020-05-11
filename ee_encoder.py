@@ -45,7 +45,7 @@ class EntityEmbeddingEncoder():
         # Load best model, set encoding layers 'EE_layers'
         self.model = keras.models.load_model('entity_embedding_model.h5')
         self.ee_layers_model = keras.Model(inputs=self.model.input, 
-                                           outputs=self.model.get_layer('EE_Layers').output)
+                                           outputs=self.model.get_layer('C').output)
 
         
     def transform(self, df):
@@ -73,26 +73,26 @@ class EntityEmbeddingEncoder():
                 enc_size = min(max(1,np.int(k/2)), 30) 
 
                 # Add EE Layer
-                input = Input(shape=(k,))
-                output = Dense(units=enc_size, activation='sigmoid')(input) 
+                input = Input(shape=(k,), name='Var_'+str(x))
+                output = Dense(units=enc_size, activation='sigmoid', name='EE_Layer_'+str(x))(input) 
                 inputs.append(input)
                 ee_layers.append(output)
             else:
                 # Add identity layer when the column is numerical
-                input = Input(shape=(1,))
+                input = Input(shape=(1,),name='Var_'+str(x))
                 output = Lambda(lambda x: x, name='Identity_' + str(x))(input)
                 inputs.append(input)
                 ee_layers.append(output)
                 
         # Append las two dense layers
-        last_layers = Concatenate(name='EE_Layers')(ee_layers)
-        last_layers = Dense(1000, activation='relu')(last_layers)
-        last_layers = Dense(500, activation='relu')(last_layers)
+        last_layers = Concatenate(name='C')(ee_layers)
+        last_layers = Dense(1000, activation='relu', name='Dense_1000')(last_layers)
+        last_layers = Dense(500, activation='relu', name='Dense_500')(last_layers)
         
         # Define final neuron depending o whether the target is categorical or numerical
         if is_categorical(y) or len(np.unique(y)) < 10:
             k = len(np.unique(y))
-            last_layers = Dense(k, activation='softmax')(last_layers)
+            last_layers = Dense(k, activation='softmax', name='Softmax')(last_layers)
             
             model = keras.Model(inputs=inputs, outputs=last_layers)
             model.compile(optimizer='adam', loss='sparse_categorical_crossentropy',
@@ -100,7 +100,7 @@ class EntityEmbeddingEncoder():
             
             y = LabelEncoder().fit_transform(y)
         else: 
-            last_layers = Dense(1, activation='sigmoid')(last_layers)
+            last_layers = Dense(1, activation='sigmoid', name='Sigmoid')(last_layers)
             model = keras.Model(inputs=inputs, outputs=last_layers)
             model.compile(optimizer='adam', loss='mean_squared_error',
                               metrics=['accuracy'])
