@@ -90,6 +90,7 @@ class EntityEmbeddingEncoder():
         last_layers = Dense(500, activation='relu', name='Dense_500')(last_layers)
         
         # Define final neuron depending o whether the target is categorical or numerical
+        y = pd.Series(np.concatenate(y.values))
         if is_categorical(y) or len(np.unique(y)) < 10:
             k = len(np.unique(y))
             last_layers = Dense(k, activation='softmax', name='Softmax')(last_layers)
