@@ -1,15 +1,24 @@
 ''' Entity Embedding Encoder
+
     author: github.com/erickgrm
 '''
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
-from category_encoders import OneHotEncoder
-from utilities import *
+try: 
+    from sklearn.model_selection import train_test_split
+    from sklearn.preprocessing import LabelEncoder
+except: 
+    raise Exception("Scikit-Learn 0.22.2+ not available")
+try: 
+    from category_encoders import OneHotEncoder
+except:
+    raise Exception('Category Encoders package not available')
+try:
+    import tensorflow.keras as keras
+    from tensorflow.keras import backend as K
+    from tensorflow.keras.layers import Dense, Input, Activation, Concatenate, Lambda
+except: 
+    raise Exception('Tensorflow 2.x not available')
 
-import tensorflow.keras as keras
-from tensorflow.keras import backend as K
-from tensorflow.keras.layers import Dense, Input, Activation, Concatenate, Lambda
-
+from .utilities import *
 
 class EntityEmbeddingEncoder(): 
     
@@ -22,10 +31,15 @@ class EntityEmbeddingEncoder():
         self.categorical_var_list = []
         self.ohencoders_dict = {}
         
-    def fit(self, df, y):
+    def fit(self, df, y, cat_cols=[]):
         ''' Retrieves the model architecture and fits the encoding model
         '''
-        self.vartypes(df)
+        df = set_categories(df, cat_cols)
+        # Scale numerical variables to [0,1]
+        df = scale_df(df)
+
+        self.vartypes(df, cat_cols)
+        print(self.categorical_var_list)
         self.model, y = self.architecture(df,y) # a keras model
 
         # Split
@@ -34,27 +48,29 @@ class EntityEmbeddingEncoder():
         X_train = self.burst_and_ohencode(df_train)
         X_val = self.burst_and_ohencode(df_val)
         
-        # Callbacks for early stopping and saving the best model found
-        model_checkpoint = keras.callbacks.ModelCheckpoint('entity_embedding_model.h5', save_best_only=True)
-        early_stopping = keras.callbacks.EarlyStopping(patience=50)
+        # Callbacks for early stopping and saving the best model
+        model_checkpoint = keras.callbacks.ModelCheckpoint('model_ee.h5', save_best_only=True)
+        early_stopping = keras.callbacks.EarlyStopping(patience=20)
 
         self.model.fit(X_train,y_train, epochs=self.epochs, batch_size=self.batch_size, verbose=0, 
                        validation_data=(X_val,y_val), 
                        callbacks=[model_checkpoint, early_stopping])
 
         # Load best model, set encoding layers 'EE_layers'
-        self.model = keras.models.load_model('entity_embedding_model.h5')
+        self.model = keras.models.load_model('model_ee.h5')
         self.ee_layers_model = keras.Model(inputs=self.model.input, 
                                            outputs=self.model.get_layer('C').output)
 
         
     def transform(self, df):
+        df = set_categories(df, self.categorical_var_list)
+        df = scale_df(df)
         X = self.burst_and_ohencode(df)
         return pd.DataFrame(self.ee_layers_model.predict(X))
     
 
-    def fit_transform(self, df, y):
-        self.fit(df,y)
+    def fit_transform(self, df, y, cat_cols=[]):
+        self.fit(df,y, cat_cols)
         return self.transform(df)
     
 
@@ -70,7 +86,7 @@ class EntityEmbeddingEncoder():
                 k = len(np.unique(df[x])) 
 
                 # A heuristic decision, how many encoding neurons to use
-                enc_size = min(max(1,np.int(k/2)), 30) 
+                enc_size = min(max(1, int(np.ceil(k/3))), 30) 
 
                 # Add EE Layer
                 input = Input(shape=(k,), name='Var_'+str(x))
@@ -123,12 +139,12 @@ class EntityEmbeddingEncoder():
         print('from IPython.display import Image\nImage(\'model.png\')')
 
 
-    def vartypes(self, df):
+    def vartypes(self, df, cat_cols):
         """ Checks which variables in df are categorical and 
             fits One Hot Encoders for each
         """
         for x in df.columns:
-            if is_categorical(df[x]):
+            if is_categorical(df[x]) or x in cat_cols:
                 self.categorical_var_list.append(x)
                 self.ohencoders_dict[x] = OneHotEncoder().fit(df[x])
 
@@ -143,5 +159,4 @@ class EntityEmbeddingEncoder():
                 X.append(self.ohencoders_dict[x].transform(df[x]).values)
             else: 
                 X.append(df[x].values)
-
         return X

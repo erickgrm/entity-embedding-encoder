@@ -29,6 +29,17 @@ def replace_in_df(df, mapping):
 
     return df.replace(mapping)
 
+def scale_df(df):
+    """ Scale all numerical variables to [0,1]
+    """
+    numerical_cols = [x for x in list(df.columns) if x not in categorical_cols(df)]
+    sc = MinMaxScaler()
+
+    for x in numerical_cols:
+        if min(df[x].values) < 0.0 or 1.0 < max(df[x].values):
+            df[x] = sc.fit_transform(df[x].values.reshape(-1,1))
+    return df
+
 def is_categorical(array):
     """ Tests if the column is categorical
     """
@@ -45,6 +56,20 @@ def categorical_cols(df):
         if is_categorical(df[x]):
             cols.append(x)
     return cols
+
+def set_categories(df, cat_cols=[]):
+    already_categorical = categorical_cols(df)
+    cols = [x for x in cat_cols if x not in already_categorical]
+    categories = {}
+    for x in cols:
+        unique = np.unique(df[x])
+        xcats = {}
+        for v in unique:
+            xcats[v]= 'X'+str(x)+'_'+str(v)
+
+        categories[x] = xcats
+    return df.replace(categories)
+
 
 def categorical_instances(df):
     """ Returns an array with all the categorical instances in df
