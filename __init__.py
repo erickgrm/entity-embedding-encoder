@@ -22,16 +22,17 @@ from .utilities import *
 
 class EntityEmbeddingEncoder(): 
     
-    def __init__(self):
+    def __init__(self, epochs=100):
         super(EntityEmbeddingEncoder,self).__init__() 
         self.model = keras.Model()
         self.ee_layers_model = keras.Model()
-        self.epochs = 100
+        self.epochs = epochs
         self.batch_size = 64
         self.categorical_var_list = []
         self.ohencoders_dict = {}
+        self.ee_sizes = {}
         
-    def fit(self, df, y, cat_cols=[]):
+    def fit(self, df, y, cat_cols=[], ee_sizes={}):
         ''' Retrieves the model architecture and fits the encoding model
         '''
         df = set_categories(df, cat_cols)
@@ -40,7 +41,7 @@ class EntityEmbeddingEncoder():
 
         self.vartypes(df, cat_cols)
         print(self.categorical_var_list)
-        self.model, y = self.architecture(df,y) # a keras model
+        self.model, y = self.architecture(df,y, ee_sizes) # a keras model
 
         # Split
         df_train, df_val, y_train, y_val = train_test_split(df, y, test_size=0.25, random_state=0)
@@ -69,12 +70,12 @@ class EntityEmbeddingEncoder():
         return pd.DataFrame(self.ee_layers_model.predict(X))
     
 
-    def fit_transform(self, df, y, cat_cols=[]):
-        self.fit(df,y, cat_cols)
+    def fit_transform(self, df, y, cat_cols=[], ee_sizes={}):
+        self.fit(df, y, cat_cols, ee_sizes)
         return self.transform(df)
     
 
-    def architecture(self, df, y):
+    def architecture(self, df, y, ee_sizes={}):
         ''' Sets the architecture of the encoding model,
             depending on the dataset structure
         '''
@@ -82,11 +83,16 @@ class EntityEmbeddingEncoder():
         ee_layers = []
         for x in df.columns:
             if x in self.categorical_var_list:
-                # number of different categories in column
-                k = len(np.unique(df[x])) 
+                # How many encoding neurons to use
+                if x in ee_sizes: # Whether the value is set manually with the parameter ee_sizes
+                    enc_size = ee_sizes[x]
+                else: 
+                    # number of different categories in column
+                    k = len(np.unique(df[x])) 
+                    # About the choice below, see Section A.3. of "On the encoding of categorical variables for
+                    # machine learning applications"
+                    enc_size = min(30, int(np.ceil(k/3))) 
 
-                # A heuristic decision, how many encoding neurons to use
-                enc_size = min(max(1, int(np.ceil(k/3))), 30) 
 
                 # Add EE Layer
                 input = Input(shape=(k,), name='Var_'+str(x))
@@ -106,8 +112,9 @@ class EntityEmbeddingEncoder():
         last_layers = Dense(500, activation='relu', name='Dense_500')(last_layers)
         
         # Define final neuron depending o whether the target is categorical or numerical
-        y = pd.Series(np.concatenate(y.values))
-        if is_categorical(y) or len(np.unique(y)) < 10:
+        #y = pd.Series(np.concatenate(y.values))
+        y = y.values
+        if len(np.unique(y)) < 10: # if y has only a few values, treat them as classes
             k = len(np.unique(y))
             last_layers = Dense(k, activation='softmax', name='Softmax')(last_layers)
             
@@ -116,7 +123,7 @@ class EntityEmbeddingEncoder():
                               metrics=['accuracy'])
             
             y = LabelEncoder().fit_transform(y)
-        else: 
+        else:   # Otherwise, assume y is continuous
             last_layers = Dense(1, activation='sigmoid', name='Sigmoid')(last_layers)
             model = keras.Model(inputs=inputs, outputs=last_layers)
             model.compile(optimizer='adam', loss='mean_squared_error',
