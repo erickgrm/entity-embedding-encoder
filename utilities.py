@@ -4,6 +4,7 @@
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler 
+from category_encoders import OneHotEncoder
 
 def replace_in_df(df, mapping):
     """ Replaces categories by numbers according to the mapping
@@ -81,10 +82,12 @@ def categorical_instances(df):
         
     return instances
 
+
 def num_categorical_instances(df):
     """ Returns the total number of categorical instances in df
     """
     return len(categorical_instances(df))
+
 
 def scale_df(df):
     """ Scales numerical variables to [0,1]
@@ -94,3 +97,32 @@ def scale_df(df):
         if not(is_categorical(df[x])):
             df[x] = scaler.fit_transform(df[x].values.reshape(-1,1))
     return df
+
+
+def var_types(df):
+    """ Returns the definitive list of variables to encode and 
+        fitted one-hot encoders for them
+    """
+    categorical_var_list = []
+    ohencoders = {}
+    for x in df.columns:
+        if is_categorical(df[x]):
+            categorical_var_list.append(x)
+            ohencoders[x] = OneHotEncoder().fit(df[x])
+
+    return categorical_var_list, ohencoders
+
+
+def set_categories(df, cat_cols=[]):
+    already_categorical = categorical_cols(df)
+    cols = [x for x in cat_cols if x not in already_categorical]
+    categories = {}
+    for x in cols:
+        unique = np.unique(df[x])
+        xcats = {}
+        for v in unique:
+            xcats[v]= str(x)+'_'+str(v)
+
+        categories[x] = xcats
+
+    return df.replace(categories)
