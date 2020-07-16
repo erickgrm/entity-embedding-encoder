@@ -11,21 +11,28 @@ from sklearn.preprocessing import LabelEncoder
 
 # Clerical
 from .utilities import *
+import os
 
 class EntityEmbeddingEncoder(): 
     
     def __init__(self, epochs=100):
         super(EntityEmbeddingEncoder,self).__init__() 
-        self.model = keras.Model()
         self.ee_layers_model = keras.Model()
+        self.model = keras.Model()
         self.epochs = epochs
         self.batch_size = 64
         self.categorical_var_list = []
         self.ohencoders = {}
         self.ee_sizes = {}
         self.df = None
+        # Delete old model_ee.h5 file from previous instances
+        if os.path.isfile('model_ee.h5'):
+            try:
+                os.remove('model_ee.h5')
+            except OSError as e:  
+                print ("Error: %s - %s." % (e.filename, e.strerror))
         
-    def fit(self, df, y, cat_cols=[], ee_sizes={}):
+    def fit(self, df, y, cat_cols=[], ee_sizes={}, partial=False, verbose=0):
         ''' Retrieves the model architecture and fits the encoding model
         '''
         # If vars in categorical_var_list are not categorical yet, make them
@@ -39,31 +46,62 @@ class EntityEmbeddingEncoder():
         self.df = scale_df(df)
 
         # Define architecture
-        self.model, y = self.architecture(y, ee_sizes) # a keras model
+        model, y = self.architecture(y, ee_sizes) # a keras model
 
-        # Split
-        df_train, df_val, y_train, y_val = train_test_split(self.df, y, test_size=0.25, random_state=0)
-        
+        # Training dataset
+        X_train = self.burst_and_ohencode(self.df)
+        y_train = np.array(y)
+
         # Before training, try to free up memory
-        del self.df
-
-        # Training and validation data
-        X_train = self.burst_and_ohencode(df_train)
-        X_val = self.burst_and_ohencode(df_val)
+        del self.df, y
         
         # Callbacks for early stopping and saving the best model
         model_checkpoint = keras.callbacks.ModelCheckpoint('model_ee.h5', save_best_only=True)
         early_stopping = keras.callbacks.EarlyStopping(patience=20)
 
-        self.model.fit(X_train,y_train, epochs=self.epochs, batch_size=self.batch_size, verbose=0, 
-                       validation_data=(X_val,y_val), 
-                       callbacks=[model_checkpoint, early_stopping])
+        # Fit the tensorflow model
+        model.fit(X_train,y_train, epochs=self.epochs, batch_size=self.batch_size, verbose=verbose, 
+                  validation_split = 0.25, callbacks=[model_checkpoint, early_stopping])
+
+        del model, X_train, y_train
 
         # Load best model, set encoding layers 'EE_layers'
         self.model = keras.models.load_model('model_ee.h5')
         self.ee_layers_model = keras.Model(inputs=self.model.input, 
                                            outputs=self.model.get_layer('C').output)
+        
+        if not(partial):
+            try:
+                os.remove('model_ee.h5')
+            except OSError as e:  
+                print ("Error: %s - %s." % (e.filename, e.strerror))
 
+    def partial_fit(self, df, y, cat_cols=[], ee_sizes={}, verbose=0):
+        """ Fit tensorflow model with a portion of the dataset
+        """
+        if os.path.isfile('model_ee.h5'):
+            model = keras.models.load_model('model_ee.h5')
+            
+            # Training dataset
+            X_train = self.burst_and_ohencode(df)
+            y_train = np.array(y)
+
+            # Callbacks for early stopping and saving the best model
+            model_checkpoint = keras.callbacks.ModelCheckpoint('model_ee.h5', save_best_only=True)
+            early_stopping = keras.callbacks.EarlyStopping(patience=20)
+
+            # Fit the tensorflow model
+            model.fit(X_train,y_train, epochs=self.epochs, batch_size=self.batch_size, verbose=verbose, 
+                      validation_split = 0.25, callbacks=[model_checkpoint, early_stopping])
+
+            del self.model, X_train, y_train
+
+            # Load best model, set encoding layers 'EE_layers'
+            self.model = keras.models.load_model('model_ee.h5')
+            self.ee_layers_model = keras.Model(inputs=self.model.input,     
+                                               outputs=self.model.get_layer('C').output)
+        else:
+            self.fit(df, y, cat_cols=cat_cols, ee_sizes=ee_sizes, partial=True, verbose=verbose)
         
     def transform(self, df):
         df = scale_df(set_categories(df.copy(), self.categorical_var_list))
@@ -135,6 +173,7 @@ class EntityEmbeddingEncoder():
                               metrics=['accuracy'])
             
         return model, y
+
 
 
     def plot_model(self):
