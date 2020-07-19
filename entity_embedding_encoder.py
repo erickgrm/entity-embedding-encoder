@@ -5,9 +5,11 @@
 # Required libraries
 import tensorflow.keras as keras
 from tensorflow.keras import backend as K
-from tensorflow.keras.layers import Dense, Input, Activation, Concatenate, Lambda
+from tensorflow.keras.layers import Dense, Input, Activation, Concatenate, \
+                                    Lambda, Embedding, Reshape
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import MinMaxScaler
+from category_encoders import OneHotEncoder
 
 # Clerical
 from .utilities import *
@@ -47,21 +49,22 @@ class EntityEmbeddingEncoder():
 
         # Define architecture
         model, y = self.architecture(y, ee_sizes) # a keras model
-
+        
         # Training dataset
         X_train = self.burst_and_ohencode(self.df)
         y_train = np.array(y)
-
+        
         # Before training, try to free up memory
         del self.df, y
         
         # Callbacks for early stopping and saving the best model
-        model_checkpoint = keras.callbacks.ModelCheckpoint('model_ee.h5', save_best_only=True)
         early_stopping = keras.callbacks.EarlyStopping(patience=20)
+        model_checkpoint = keras.callbacks.ModelCheckpoint('model_ee.h5', save_best_only=True)
 
         # Fit the tensorflow model
-        model.fit(X_train,y_train, epochs=self.epochs, batch_size=self.batch_size, verbose=verbose, 
-                  validation_split = 0.25, callbacks=[model_checkpoint, early_stopping])
+        model.fit(X_train,y_train, epochs=self.epochs, verbose=verbose, 
+                  batch_size=self.batch_size, validation_split = 0.25, 
+                  callbacks=[model_checkpoint, early_stopping])
 
         del model, X_train, y_train
 
@@ -87,12 +90,13 @@ class EntityEmbeddingEncoder():
             y_train = np.array(y)
 
             # Callbacks for early stopping and saving the best model
-            model_checkpoint = keras.callbacks.ModelCheckpoint('model_ee.h5', save_best_only=True)
             early_stopping = keras.callbacks.EarlyStopping(patience=20)
+            model_checkpoint = keras.callbacks.ModelCheckpoint('model_ee.h5', save_best_only=True)
 
             # Fit the tensorflow model
-            model.fit(X_train,y_train, epochs=self.epochs, batch_size=self.batch_size, verbose=verbose, 
-                      validation_split = 0.25, callbacks=[model_checkpoint, early_stopping])
+            model.fit(X_train, y_train, epochs=self.epochs, verbose=verbose, 
+                      batch_size=self.batch_size, validation_split = 0.25, 
+                      callbacks=[model_checkpoint, early_stopping])
 
             del self.model, X_train, y_train
 
@@ -127,16 +131,17 @@ class EntityEmbeddingEncoder():
 
                 # Set the number of neurons for EE layer
                 if x in ee_sizes: 
-                    enc_size = ee_sizes[x]
+                    ee_dim = ee_sizes[x]
                 else: 
                     # About the choice below, see Section A.3. of "On the encoding of 
                     # categorical variables for machine learning applications"
-                    enc_size = min(30, int(np.ceil(k/3)))
+                    ee_dim = min(30, int(np.ceil((k+1)/3)))
 
                 # Add EE Layer
-                input = Input(shape=(k,), name='Var_'+str(x))
-                output = Dense(units=enc_size, activation='sigmoid', 
-                               name='EEL'+str(x)+'_size_'+str(enc_size))(input) 
+                input = Input(shape=(1,), name='Var_'+str(x))
+                output = Embedding(k, ee_dim,
+                                   name='EEL'+str(x)+'_size_'+str(ee_dim))(input) 
+                output = Reshape(target_shape=(ee_dim, ))(output)
 
                 inputs.append(input)
                 ee_layers.append(output)
@@ -152,28 +157,37 @@ class EntityEmbeddingEncoder():
         last_layers = Dense(1000, activation='relu', name='Dense_size_1000')(last_layers)
         last_layers = Dense(500, activation='relu', name='Dense_size_500')(last_layers)
         
-        # Define final neuron depending o whether the target is categorical or numerical
-        #y = pd.Series(np.concatenate(y.values))
-        y = y.values
-        if len(np.unique(y)) < 10: # if y has only a few values, treat them as classes
+        # Define output layer according to target variable
+        if len(np.unique(y)) == 2: # binary classification
+
+            last_layers = Dense(2, activation='softmax', name='Softmax')(last_layers)
+            
+            model = keras.Model(inputs=inputs, outputs=last_layers)
+            model.compile(optimizer='adam', loss='binary_crossentropy', 
+                          metrics=[keras.metrics.AUC()])
+            
+            y = OneHotEncoder().fit_transform(keras.utils.to_categorical(y))
+
+        elif 2 < len(np.unique(y)) < 20: # if y has only a few values, treat them as classes
 
             last_layers = Dense(len(np.unique(y)), activation='softmax', 
-                                 name='Softmax')(last_layers)
+                                name='Softmax')(last_layers)
             
             model = keras.Model(inputs=inputs, outputs=last_layers)
             model.compile(optimizer='adam', loss='sparse_categorical_crossentropy',
-                              metrics=['accuracy'])
-
+                          metrics=['accuracy'])
              
             y = LabelEncoder().fit_transform(y)
+
         else:   # Otherwise, assume y is continuous
             last_layers = Dense(1, activation='sigmoid', name='Sigmoid')(last_layers)
             model = keras.Model(inputs=inputs, outputs=last_layers)
             model.compile(optimizer='adam', loss='mean_squared_error',
-                              metrics=['accuracy'])
+                          metrics=[keras.metrics.MeanSquaredError()])
             
-        return model, y
+            y = MinMaxScaler().fit_transform(y)
 
+        return model, np.array(y)
 
 
     def plot_model(self):
@@ -198,7 +212,8 @@ class EntityEmbeddingEncoder():
         X = []
         for x in df.columns:
             if x in self.categorical_var_list:
-                X.append(self.ohencoders[x].transform(df[x]).values)
+                #X.append(self.ohencoders[x].transform(df[x]).values)
+                X.append(self.ohencoders[x].transform(df[x]))
             else: 
                 X.append(df[x].values)
         return X

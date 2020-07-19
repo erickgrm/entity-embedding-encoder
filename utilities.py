@@ -3,7 +3,7 @@
 
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import MinMaxScaler 
+from sklearn.preprocessing import MinMaxScaler, LabelEncoder
 from category_encoders import OneHotEncoder
 
 def replace_in_df(df, mapping):
@@ -108,7 +108,8 @@ def var_types(df):
     for x in df.columns:
         if is_categorical(df[x]):
             categorical_var_list.append(x)
-            ohencoders[x] = OneHotEncoder().fit(df[x])
+            #ohencoders[x] = OneHotEncoder().fit(df[x])
+            ohencoders[x] = LabelEncoder().fit(df[x])
 
     return categorical_var_list, ohencoders
 
