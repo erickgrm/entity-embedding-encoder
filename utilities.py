@@ -58,6 +58,7 @@ def categorical_cols(df):
             cols.append(x)
     return cols
 
+
 def set_categories(df, cat_cols=[]):
     already_categorical = categorical_cols(df)
     cols = [x for x in cat_cols if x not in already_categorical]
@@ -66,11 +67,11 @@ def set_categories(df, cat_cols=[]):
         unique = np.unique(df[x])
         xcats = {}
         for v in unique:
-            xcats[v]= 'X'+str(x)+'_'+str(v)
+            xcats[v]= str(x)+'_'+str(v)
 
         categories[x] = xcats
-    return df.replace(categories)
 
+    return df.replace(categories)
 
 def categorical_instances(df):
     """ Returns an array with all the categorical instances in df
@@ -99,31 +100,18 @@ def scale_df(df):
     return df
 
 
-def var_types(df):
+def var_types(df, test=pd.DataFrame([])):
     """ Returns the definitive list of variables to encode and 
         fitted one-hot encoders for them
     """
+    X = df.append(test).reset_index(drop=True)
     categorical_var_list = []
     ohencoders = {}
     for x in df.columns:
         if is_categorical(df[x]):
             categorical_var_list.append(x)
-            #ohencoders[x] = OneHotEncoder().fit(df[x])
-            ohencoders[x] = LabelEncoder().fit(df[x])
+            ohencoders[x] = LabelEncoder().fit(X[x])
 
     return categorical_var_list, ohencoders
 
 
-def set_categories(df, cat_cols=[]):
-    already_categorical = categorical_cols(df)
-    cols = [x for x in cat_cols if x not in already_categorical]
-    categories = {}
-    for x in cols:
-        unique = np.unique(df[x])
-        xcats = {}
-        for v in unique:
-            xcats[v]= str(x)+'_'+str(v)
-
-        categories[x] = xcats
-
-    return df.replace(categories)
